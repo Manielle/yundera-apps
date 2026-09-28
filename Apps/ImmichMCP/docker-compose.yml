@@ -1,0 +1,122 @@
+name: immichmcp
+services:
+  # MCP server for Immich (drolosoft/immich-photo-manager), Streamable HTTP on 8626.
+  # Reachable only inside the pcs network; the public URL goes through AppShield.
+  immichmcp-backend:
+    image: ghcr.io/drolosoft/immich-photo-manager:2.0.11
+    container_name: immichmcp-backend
+    hostname: immichmcp-backend
+    user: "0:0"
+    restart: unless-stopped
+    cpu_shares: 50
+    expose:
+      - 8626
+    environment:
+      - TZ=$TZ
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8626
+      # Immich app from the Yundera store, reached on the internal network.
+      - IMMICH_BASE_URL=http://immich:80
+      - IMMICH_EXTERNAL_URL=https://immich-${APP_DOMAIN}
+      # Left empty on purpose: the API key is set once after install with the
+      # update_credentials tool and persisted in /data (never in this repo).
+      - IMMICH_API_KEY=
+      - MCP_ALLOWED_HOSTS=immichmcp-backend,immichmcp-${APP_DOMAIN},immichmcp
+    volumes:
+      - type: bind
+        source: ${DATA_ROOT:-/DATA}/AppData/immichmcp/data/
+        target: /data
+    networks:
+      - pcs
+
+  # AppShield: server SSO for humans, OAuth 2.1 broker for /mcp (claude.ai compatible).
+  immichmcp-proxy:
+    image: ghcr.io/yundera/appshield:3.0.2
+    container_name: immichmcp
+    hostname: immichmcp
+    restart: unless-stopped
+    cpu_shares: 50
+    expose:
+      - 80
+    user: "0:0"
+    environment:
+      BACKEND_HOST: immichmcp-backend
+      BACKEND_PORT: "8626"
+      LISTEN_PORT: "80"
+      OIDC_REGISTRAR_URL: "http://auth-registrar:9092"
+      REDIRECT_HOST_SUFFIXES: "${APP_DOMAIN},${APP_PUBLIC_IP_DASH}.nip.io,${APP_PUBLIC_IP_DASH}.sslip.io"
+      OAUTH_RESOURCE: "https://immichmcp-${APP_DOMAIN}/mcp"
+      OAUTH_SCOPE: "mcp"
+      OAUTH_DATA_DIR: "/data/oauth"
+    volumes:
+      - ${DATA_ROOT:-/DATA}/AppData/immichmcp/oauth/:/data/oauth
+    depends_on:
+      - immichmcp-backend
+    networks:
+      - pcs
+    labels:
+      caddy_0: immichmcp-${APP_DOMAIN}
+      caddy_0.import: gateway_tls
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_1: immichmcp-${APP_PUBLIC_IP_DASH}.nip.io
+      caddy_1.import: gateway_tls
+      caddy_1.reverse_proxy: "{{upstreams 80}}"
+      caddy_2: immichmcp-${APP_PUBLIC_IP_DASH}.sslip.io
+      caddy_2.reverse_proxy: "{{upstreams 80}}"
+
+networks:
+  pcs:
+    name: ${APP_NET:-pcs}
+    external: true
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: immichmcp-proxy
+  hostname: immichmcp-${APP_DOMAIN}
+  scheme: https
+  port_map: "443"
+  index: /health
+  category: AI
+  tags: ["ai", "photos"]
+  author: drolosoft (packaged for personal use)
+  developer: drolosoft
+  description:
+    en_us: |
+      MCP server for Immich (immich-photo-manager): lets Claude search, browse and organize your Immich library. The /mcp endpoint is protected by OAuth 2.1 through AppShield.
+    fr_fr: |
+      Serveur MCP pour Immich (immich-photo-manager) : permet à Claude de chercher, parcourir et organiser ta photothèque Immich. L'adresse /mcp est protégée par OAuth 2.1 via AppShield.
+  icon: icon.png
+  thumbnail: thumbnail.png
+  tagline:
+    en_us: Connect Claude to your Immich photos
+    fr_fr: Connecte Claude à tes photos Immich
+  title:
+    en_us: Immich MCP
+  tips:
+    before_install:
+      fr_fr: |
+        Nécessite l'app Immich installée sur ce serveur.
+
+        Après installation, ajoute dans Claude (Customize > Connectors > Add custom connector) l'adresse :
+        `https://immichmcp-${APP_DOMAIN}/mcp`
+        puis connecte-toi avec ton compte serveur.
+
+        Ensuite, demande une fois à Claude d'appeler `update_credentials` avec `http://immich:80` et ta clé API Immich.
+      en_us: |
+        Requires the Immich app on this server.
+
+        After install, add `https://immichmcp-${APP_DOMAIN}/mcp` as a custom connector in Claude, sign in with your server account, then ask Claude once to call `update_credentials` with `http://immich:80` and your Immich API key.
+
+x-compose-app:
+  schema_version: 2
+  folders:
+    - path: /DATA/AppData/immichmcp/data
+      user: $PUID
+      group: $PGID
+    - path: /DATA/AppData/immichmcp/oauth
+      user: $PUID
+      group: $PGID
+  webui-host: immichmcp-${domain}
+  webui-path: "/health"
