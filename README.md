@@ -2,6 +2,6 @@
 
 Store d'apps personnel pour Yundera (Maison).
 
-Adresse du store : `https://github.com/<utilisateur>/yundera-apps/archive/refs/heads/main.zip`
+Adresse du store : `https://github.com/Manielle/yundera-apps/archive/refs/heads/main.zip`
 
 - **Immich MCP** : connecte Claude à Immich (immich-photo-manager + AppShield OAuth).
